@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Smart Pill Box",
+    "slug": "smart-pill-box",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "smartpillbox",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-router",
+      "expo-notifications",
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E9F7F0"
+      }
+    }
+  }
+}
