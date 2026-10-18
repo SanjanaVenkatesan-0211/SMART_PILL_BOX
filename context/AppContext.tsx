@@ -26,6 +26,17 @@ type AppContextValue = {
 const AppContext = createContext<AppContextValue | null>(null);
 const labels: Record<Compartment, string> = { morning: 'Morning', afternoon: 'Afternoon', night: 'Night' };
 
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function isRecordFromDate(record: HistoryRecord, date: Date) {
+  return record.date === localDateKey(date) || record.date === date.toLocaleDateString();
+}
+
 function readSchedule(value: Record<string, unknown> | null): Schedule {
   return { ...defaultSchedule, ...(value ?? {}), updatedAt: String(value?.updatedAt ?? new Date().toISOString()) } as Schedule;
 }
@@ -41,6 +52,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [schedule, setSchedule] = useState(defaultSchedule);
   const [inventory, setInventory] = useState(defaultInventory);
   const [statuses, setStatuses] = useState<Statuses>(defaultStatuses);
+  const [statusDate, setStatusDate] = useState('');
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [alerts, setAlerts] = useState<CaregiverAlert[]>([]);
 
@@ -57,7 +69,16 @@ export function AppProvider({ children }: PropsWithChildren) {
       setUser((data.profile ?? { uid: nextUser.uid, name: nextUser.displayName ?? 'User', email: nextUser.email ?? '', phone: '', age: 0, dob: '', gender: '', bloodGroup: '' }) as UserProfile);
       setSchedule(readSchedule(data.schedule));
       setInventory(readInventory(data.inventory));
-      setStatuses({ ...defaultStatuses, ...(data.statuses ?? {}) } as Statuses);
+      const today = localDateKey();
+      const storedStatusDate = String(data.statuses?.statusDate ?? '');
+      const loadedStatuses = storedStatusDate === today
+        ? { ...defaultStatuses, morning: data.statuses?.morning, afternoon: data.statuses?.afternoon, night: data.statuses?.night } as Statuses
+        : defaultStatuses;
+      setStatuses(loadedStatuses);
+      setStatusDate(today);
+      if (storedStatusDate !== today) {
+        await saveUserData(nextUser.uid, { statuses: { ...defaultStatuses, statusDate: today, updatedAt: new Date().toISOString() } });
+      }
       setHistory((data.latestHistory ?? []) as HistoryRecord[]);
       setAlerts((data.alerts ?? []) as CaregiverAlert[]);
     } catch (error) {
@@ -90,8 +111,8 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   const resetTodayForTesting = async () => {
     if (!authUser) return;
-    const today = new Date().toLocaleDateString();
-    const todayTaken = history.filter((record) => record.date === today && record.status === 'Taken');
+    const today = new Date();
+    const todayTaken = history.filter((record) => isRecordFromDate(record, today) && record.status === 'Taken');
     const restoredInventory = { ...inventory, updatedAt: new Date().toISOString() };
     for (const record of todayTaken) {
       const stockKey = `${record.compartment}Stock` as keyof Inventory;
@@ -99,16 +120,23 @@ export function AppProvider({ children }: PropsWithChildren) {
       (restoredInventory as Record<string, number | string>)[stockKey] = Number(restoredInventory[stockKey]) + doseAmount;
     }
     const pendingStatuses = { morning: 'Pending', afternoon: 'Pending', night: 'Pending' } as Statuses;
-    const remainingHistory = history.filter((record) => record.date !== today);
+    const remainingHistory = history;
     setInventory(restoredInventory);
     setStatuses(pendingStatuses);
-    setHistory(remainingHistory);
-    await saveUserData(authUser.uid, { inventory: restoredInventory, statuses: pendingStatuses, history: remainingHistory });
+    setStatusDate(localDateKey(today));
+    await saveUserData(authUser.uid, { inventory: restoredInventory, statuses: { ...pendingStatuses, statusDate: localDateKey(today), updatedAt: new Date().toISOString() } });
   };
 
   const checkMissedDoses = async () => {
     if (!authUser) return;
     const now = new Date();
+    const today = localDateKey(now);
+    if (statusDate !== today) {
+      setStatuses(defaultStatuses);
+      setStatusDate(today);
+      await saveUserData(authUser.uid, { statuses: { ...defaultStatuses, statusDate: today, updatedAt: now.toISOString() } });
+      return;
+    }
     const missedCompartments = (['morning', 'afternoon', 'night'] as Compartment[]).filter((compartment) => {
       if (statuses[compartment] !== 'Pending') return false;
       const [hour, minute] = String(schedule[`${compartment}Time`]).split(':').map(Number);
@@ -121,7 +149,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const missedRecords: HistoryRecord[] = [];
     for (const compartment of missedCompartments) {
       nextStatuses[compartment] = 'Missed';
-      missedRecords.push({ id: `missed-${compartment}-${now.toISOString().slice(0, 10)}`, medicine: String(schedule[`${compartment}Medicine`]), compartment, scheduledTime: String(schedule[`${compartment}Time`]), status: 'Missed', date: now.toLocaleDateString(), createdAt: now.toISOString() });
+      missedRecords.push({ id: `missed-${compartment}-${today}`, medicine: String(schedule[`${compartment}Medicine`]), compartment, scheduledTime: String(schedule[`${compartment}Time`]), status: 'Missed', date: today, createdAt: now.toISOString() });
     }
     const nextHistory = [...missedRecords, ...history];
     const nextAlerts = missedRecords.map((record) => ({ id: `local-${record.id}`, message: `${record.medicine} was missed at ${record.scheduledTime}.`, resolved: false, createdAt: record.createdAt }));
@@ -129,7 +157,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     setHistory(nextHistory);
     setAlerts((current) => [...nextAlerts, ...current]);
     await Promise.all([
-      saveUserData(authUser.uid, { statuses: nextStatuses, history: nextHistory }),
+      saveUserData(authUser.uid, { statuses: { ...nextStatuses, statusDate: today, updatedAt: now.toISOString() }, history: nextHistory }),
       ...missedRecords.flatMap((record) => [saveHistoryRecord(authUser.uid, record), saveCaregiverAlert(authUser.uid, `${record.medicine} was missed at ${record.scheduledTime}.`)]),
     ]);
   };
@@ -139,7 +167,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     void checkMissedDoses();
     const timer = setInterval(() => void checkMissedDoses(), 60 * 1000);
     return () => clearInterval(timer);
-  }, [authUser, loading, schedule, statuses, history]);
+  }, [authUser, loading, schedule, statuses, history, statusDate]);
 
   const takeDose = async (compartment: Compartment) => {
     if (!authUser) return false;
@@ -149,12 +177,15 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (stock < doseAmount) return false;
     const nextInventory = { ...inventory, [stockKey]: stock - doseAmount, updatedAt: new Date().toISOString() };
     const nextStatuses = { ...statuses, [compartment]: 'Taken' as DoseStatus };
-    const record: HistoryRecord = { id: String(Date.now()), medicine: String(schedule[`${compartment}Medicine`]), compartment, scheduledTime: String(schedule[`${compartment}Time`]), takenTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), status: 'Taken', date: new Date().toLocaleDateString(), createdAt: new Date().toISOString() };
+    const now = new Date();
+    const today = localDateKey(now);
+    const record: HistoryRecord = { id: String(Date.now()), medicine: String(schedule[`${compartment}Medicine`]), compartment, scheduledTime: String(schedule[`${compartment}Time`]), takenTime: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), status: 'Taken', date: today, createdAt: now.toISOString() };
     const nextHistory = [record, ...history];
     setInventory(nextInventory);
     setStatuses(nextStatuses);
     setHistory(nextHistory);
-    await Promise.all([saveUserData(authUser.uid, { inventory: nextInventory, statuses: nextStatuses, history: nextHistory }), saveHistoryRecord(authUser.uid, record)]);
+    setStatusDate(today);
+    await Promise.all([saveUserData(authUser.uid, { inventory: nextInventory, statuses: { ...nextStatuses, statusDate: today, updatedAt: now.toISOString() }, history: nextHistory }), saveHistoryRecord(authUser.uid, record)]);
     return true;
   };
 

@@ -3,6 +3,14 @@ import { router } from 'expo-router';
 import React from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useApp } from '@/context/AppContext';
+import { HistoryRecord } from '@/lib/types';
+
+function isToday(record: HistoryRecord, now: Date) {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return record.date === `${year}-${month}-${day}` || record.date === now.toLocaleDateString();
+}
 
 export default function Dashboard() {
   const { user, doses, takeDose, inventory, history } = useApp();
@@ -10,8 +18,9 @@ export default function Dashboard() {
   const now = new Date();
   const dateLabel = now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
   const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
-  const taken = history.filter((item) => item.status === 'Taken').length;
-  const missed = history.filter((item) => item.status === 'Missed').length;
+  const todayHistory = history.filter((item) => isToday(item, now));
+  const taken = todayHistory.filter((item) => item.status === 'Taken').length;
+  const missed = todayHistory.filter((item) => item.status === 'Missed').length;
   const adherence = taken + missed ? Math.round((taken / (taken + missed)) * 100) : 100;
   return <ScrollView style={styles.page} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <View style={styles.top}><View><Text style={styles.eyebrow}>{dateLabel}</Text><Text style={styles.greeting}>{greeting}, {user.name.split(' ')[0]}</Text></View><Pressable onPress={() => router.push('/profile')} style={styles.avatar}><Text style={styles.avatarText}>{initials(user.name)}</Text></Pressable></View>
