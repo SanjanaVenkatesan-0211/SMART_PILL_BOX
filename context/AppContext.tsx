@@ -66,8 +66,10 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
     try {
       const data = await loadUserData(nextUser.uid);
-      setUser((data.profile ?? { uid: nextUser.uid, name: nextUser.displayName ?? 'User', email: nextUser.email ?? '', phone: '', age: 0, dob: '', gender: '', bloodGroup: '' }) as UserProfile);
-      setSchedule(readSchedule(data.schedule));
+      const loadedProfile = { uid: nextUser.uid, name: nextUser.displayName ?? 'User', email: nextUser.email ?? '', phone: '', age: 0, dob: '', gender: '', bloodGroup: '', voiceLanguage: 'en-US', caregiverName: '', caregiverPhone: '', caregiverEmail: '', caregiverAlertAfterReminders: 3, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', ...(data.profile ?? {}) } as UserProfile;
+      const loadedSchedule = readSchedule(data.schedule);
+      setUser(loadedProfile);
+      setSchedule(loadedSchedule);
       setInventory(readInventory(data.inventory));
       const today = localDateKey();
       const storedStatusDate = String(data.statuses?.statusDate ?? '');
@@ -81,6 +83,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       }
       setHistory((data.latestHistory ?? []) as HistoryRecord[]);
       setAlerts((data.alerts ?? []) as CaregiverAlert[]);
+      try { await scheduleDailyReminders(loadedSchedule, loadedProfile.voiceLanguage || 'en-US'); } catch { /* Expo Go does not support Android scheduled notifications. */ }
     } catch (error) {
       console.error('Unable to load Firebase user data', error);
     } finally {
@@ -93,7 +96,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const saved = { ...next, updatedAt: new Date().toISOString() };
     setSchedule(saved);
     await saveUserData(authUser.uid, { schedule: saved });
-    try { await scheduleDailyReminders(saved); } catch { /* Expo Go does not support Android notifications. */ }
+    try { await scheduleDailyReminders(saved, user?.voiceLanguage || 'en-US'); } catch { /* Expo Go does not support Android notifications. */ }
   };
 
   const updateInventory = async (next: Inventory) => {
@@ -107,6 +110,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (!authUser) return;
     await updateUserProfile(authUser.uid, next);
     setUser(next);
+    try { await scheduleDailyReminders(schedule, next.voiceLanguage || 'en-US'); } catch { /* Notifications require a development build on Android. */ }
   };
 
   const resetTodayForTesting = async () => {
@@ -142,7 +146,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       const [hour, minute] = String(schedule[`${compartment}Time`]).split(':').map(Number);
       const scheduled = new Date(now);
       scheduled.setHours(hour, minute, 0, 0);
-      return now.getTime() - scheduled.getTime() >= 30 * 60 * 1000;
+      const alertAfter = Math.max(1, Number(user?.caregiverAlertAfterReminders) || 3);
+      const interval = Math.max(1, Number(schedule.reminderIntervalMinutes) || 10);
+      const missedAfterMinutes = Math.max(30, (alertAfter * interval));
+      return now.getTime() - scheduled.getTime() >= missedAfterMinutes * 60 * 1000;
     });
     if (!missedCompartments.length) return;
     const nextStatuses = { ...statuses };
@@ -152,13 +159,13 @@ export function AppProvider({ children }: PropsWithChildren) {
       missedRecords.push({ id: `missed-${compartment}-${today}`, medicine: String(schedule[`${compartment}Medicine`]), compartment, scheduledTime: String(schedule[`${compartment}Time`]), status: 'Missed', date: today, createdAt: now.toISOString() });
     }
     const nextHistory = [...missedRecords, ...history];
-    const nextAlerts = missedRecords.map((record) => ({ id: `local-${record.id}`, message: `${record.medicine} was missed at ${record.scheduledTime}.`, resolved: false, createdAt: record.createdAt }));
+    const nextAlerts = missedRecords.map((record) => ({ id: record.id, message: `${record.medicine} was missed at ${record.scheduledTime}.`, resolved: false, smsStatus: user?.caregiverPhone ? 'queued' : 'no-phone', createdAt: record.createdAt }));
     setStatuses(nextStatuses);
     setHistory(nextHistory);
     setAlerts((current) => [...nextAlerts, ...current]);
     await Promise.all([
       saveUserData(authUser.uid, { statuses: { ...nextStatuses, statusDate: today, updatedAt: now.toISOString() }, history: nextHistory }),
-      ...missedRecords.flatMap((record) => [saveHistoryRecord(authUser.uid, record), saveCaregiverAlert(authUser.uid, `${record.medicine} was missed at ${record.scheduledTime}.`)]),
+      ...missedRecords.flatMap((record) => [saveHistoryRecord(authUser.uid, record, record.id), saveCaregiverAlert(authUser.uid, `${record.medicine} was missed at ${record.scheduledTime}.`, user ?? undefined, record.id)]),
     ]);
   };
 
@@ -167,7 +174,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     void checkMissedDoses();
     const timer = setInterval(() => void checkMissedDoses(), 60 * 1000);
     return () => clearInterval(timer);
-  }, [authUser, loading, schedule, statuses, history, statusDate]);
+  }, [authUser, loading, schedule, statuses, history, statusDate, user]);
 
   const takeDose = async (compartment: Compartment) => {
     if (!authUser) return false;

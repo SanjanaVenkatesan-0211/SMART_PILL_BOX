@@ -13,7 +13,8 @@ export default function RootLayout() {
       await configureNotifications();
       subscription = Notifications.addNotificationResponseReceivedListener((response) => {
         const compartment = response.notification.request.content.data?.compartment;
-        if (compartment === 'morning' || compartment === 'afternoon' || compartment === 'night') speakReminder(compartment);
+        const language = response.notification.request.content.data?.language;
+        if ((compartment === 'morning' || compartment === 'afternoon' || compartment === 'night') && typeof language === 'string') speakReminder(compartment, language);
       });
     }).catch(() => undefined);
     return () => subscription?.remove();

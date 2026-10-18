@@ -25,7 +25,7 @@ export default function Caregiver() {
     <Text style={styles.section}>Caregiver alerts ({openAlerts.length})</Text>
     <View style={styles.alertWindow}>
       <ScrollView nestedScrollEnabled showsVerticalScrollIndicator contentContainerStyle={styles.alertContent}>
-        {openAlerts.map((item) => <View style={styles.alertItem} key={item.id}><Ionicons name="notifications-outline" size={19} color="#C05252" /><Text style={styles.alertItemText}>{item.message}</Text></View>)}
+        {openAlerts.map((item) => <View style={styles.alertItem} key={item.id}><Ionicons name="notifications-outline" size={19} color="#C05252" /><View style={styles.alertCopy}><Text style={styles.alertItemText}>{item.message}</Text>{item.smsStatus && <Text style={styles.smsStatus}>{smsLabel(item.smsStatus)}</Text>}</View></View>)}
         {openAlerts.length === 0 && <Text style={styles.empty}>No active caregiver alerts.</Text>}
       </ScrollView>
     </View>
@@ -39,6 +39,15 @@ export default function Caregiver() {
 
 function Metric({ icon, value, label, color }: { icon: keyof typeof Ionicons.glyphMap; value: string; label: string; color: string }) {
   return <View style={styles.metric}><Ionicons name={icon} size={20} color={color} /><Text style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>;
+}
+
+function smsLabel(status: string) {
+  if (status === 'sent') return 'Caregiver SMS sent';
+  if (status === 'queued') return 'Caregiver SMS queued';
+  if (status === 'invalid-phone') return 'Caregiver phone must use international format';
+  if (status === 'failed') return 'Caregiver SMS failed';
+  if (status === 'no-phone') return 'No caregiver phone configured';
+  return `Caregiver SMS: ${status}`;
 }
 
 function subtractMinutes(time: string, amount: number) {
@@ -71,7 +80,9 @@ const styles = StyleSheet.create({
   alertWindow: { height: 220, backgroundColor: '#FFF', borderRadius: 15, borderWidth: 1, borderColor: '#E9EFEC', overflow: 'hidden' },
   alertContent: { padding: 10 },
   alertItem: { backgroundColor: '#FFF4F1', borderRadius: 13, padding: 14, flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 8 },
-  alertItemText: { color: '#82453E', fontSize: 12, flex: 1 },
+  alertCopy: { flex: 1 },
+  alertItemText: { color: '#82453E', fontSize: 12 },
+  smsStatus: { color: '#879590', fontSize: 10, marginTop: 4 },
   empty: { color: '#879590', fontSize: 12, padding: 8 },
   helper: { color: '#879590', fontSize: 11, marginTop: -7, marginBottom: 12 },
   adaptiveGrid: { gap: 9 },

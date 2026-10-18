@@ -5,6 +5,8 @@ export type Schedule = Record<`${Compartment}Time` | `${Compartment}Dose`, strin
   morningMedicine: string;
   afternoonMedicine: string;
   nightMedicine: string;
+  reminderCount: number;
+  reminderIntervalMinutes: number;
   updatedAt: string;
 };
 
@@ -38,6 +40,7 @@ export type CaregiverAlert = {
   id: string;
   message: string;
   resolved: boolean;
+  smsStatus?: string;
   createdAt?: string;
 };
 
@@ -50,4 +53,10 @@ export type UserProfile = {
   dob: string;
   gender: string;
   bloodGroup: string;
+  voiceLanguage: string;
+  caregiverName: string;
+  caregiverPhone: string;
+  caregiverEmail: string;
+  caregiverAlertAfterReminders: number;
+  timezone: string;
 };

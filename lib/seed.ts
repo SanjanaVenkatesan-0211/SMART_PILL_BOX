@@ -3,7 +3,7 @@ import { Inventory, Schedule, UserProfile, DoseStatus, HistoryRecord } from './t
 export const defaultSchedule: Schedule = {
   morningMedicine: 'Morning medicine', afternoonMedicine: 'Afternoon medicine', nightMedicine: 'Night medicine',
   morningTime: '08:00', afternoonTime: '13:00', nightTime: '20:00',
-  morningDose: 1, afternoonDose: 1, nightDose: 2, updatedAt: new Date().toISOString(),
+  morningDose: 1, afternoonDose: 1, nightDose: 2, reminderCount: 3, reminderIntervalMinutes: 10, updatedAt: new Date().toISOString(),
 };
 
 export const defaultInventory: Inventory = {
@@ -17,6 +17,7 @@ export const defaultStatuses: Record<'morning' | 'afternoon' | 'night', DoseStat
 export const demoUser: UserProfile = {
   uid: 'demo-user', name: 'Maya Thompson', email: 'maya@example.com', phone: '+1 555 018 4420', age: 64,
   dob: '1962-04-18', gender: 'Female', bloodGroup: 'O+',
+  voiceLanguage: 'en-US', caregiverName: '', caregiverPhone: '', caregiverEmail: '', caregiverAlertAfterReminders: 3, timezone: 'UTC',
 };
 
 export const demoHistory: HistoryRecord[] = [

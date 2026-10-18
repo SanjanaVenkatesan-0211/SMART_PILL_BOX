@@ -18,6 +18,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.smartpillbox.app",
       "adaptiveIcon": {
         "backgroundColor": "#E9F7F0"
       }
