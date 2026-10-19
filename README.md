@@ -52,10 +52,11 @@ Expo Go is suitable for this speech test. This app deliberately does not import 
 ### Test scheduled notifications
 
 1. Install/open the development APK (not Expo Go) and grant notification permission.
-2. In Schedule, set a compartment time a few minutes ahead, set reminder count to `3`, and interval to `1` minute; save.
-3. Keep the development app installed; notifications should arrive at the scheduled minute and the next two minute intervals, including with the app in the background.
-4. Tap a notification. It should open the app and speak that compartment's reminder in the selected installed language.
-5. Restore your normal schedule and reminder interval after testing.
+2. In Schedule, choose a time a few minutes ahead with the native AM/PM picker, set reminder count to `3`, and interval to `1` minute; save. The first reminder is at the selected time, followed by reminders one and two minutes later. It is not intentionally sent before the selected time.
+3. On Android 12+, open **Settings → Apps → Smart Pill Box → Alarms & reminders** and allow alarms. Android can delay reminders by minutes if exact alarms are not allowed; battery optimization can also affect some phone vendors.
+4. Keep the development app installed and test while it is foregrounded, backgrounded, and after restarting the phone.
+5. Tap a notification. It should open the app and speak that compartment's reminder in the selected installed language.
+6. Restore your normal schedule and reminder interval after testing.
 
 ## Caregiver SMS setup
 

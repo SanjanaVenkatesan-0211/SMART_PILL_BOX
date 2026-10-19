@@ -38,6 +38,12 @@ const copy: Record<string, Record<Compartment, { title: string; body: string; sp
 export async function scheduleDailyReminders(schedule: Schedule, language = 'en-US') {
   if (Constants.appOwnership === 'expo') return false;
   const Notifications = await import('expo-notifications');
+  await Notifications.setNotificationChannelAsync('medication-reminders', {
+    name: 'Medication reminders',
+    description: 'Scheduled medicine reminders',
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 150, 250],
+  });
   const permission = await Notifications.getPermissionsAsync();
   if (!permission.granted) {
     const requested = await Notifications.requestPermissionsAsync();
@@ -56,7 +62,7 @@ export async function scheduleDailyReminders(schedule: Schedule, language = 'en-
       const minute = totalMinutes % 60;
       await Notifications.scheduleNotificationAsync({
         content: { title: selectedCopy[compartment].title, body: selectedCopy[compartment].body, data: { compartment, language, reminderIndex } },
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute, channelId: 'medication-reminders' },
       });
     }
   }

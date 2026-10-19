@@ -59,8 +59,7 @@ exports.detectMissedDoses = onSchedule('every 5 minutes', async () => {
       const nextStatuses = {};
       let changed = false;
       const interval = Math.max(1, Number(schedule.reminderIntervalMinutes) || 10);
-      const caregiverThreshold = Math.max(1, Number(profile.caregiverAlertAfterReminders) || 3);
-      const missedAfterMinutes = Math.max(30, caregiverThreshold * interval);
+      const missedAfterMinutes = Math.max(5, Math.min(15, interval));
       for (const compartment of ['morning', 'afternoon', 'night']) {
         if (current[compartment] !== 'Pending') continue;
         const [hour, minute] = String(schedule[`${compartment}Time`] || '').split(':').map(Number);

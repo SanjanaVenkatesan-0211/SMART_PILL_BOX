@@ -11,7 +11,7 @@ export const defaultInventory: Inventory = {
 };
 
 export const defaultStatuses: Record<'morning' | 'afternoon' | 'night', DoseStatus> = {
-  morning: 'Taken', afternoon: 'Pending', night: 'Pending',
+  morning: 'Pending', afternoon: 'Pending', night: 'Pending',
 };
 
 export const demoUser: UserProfile = {

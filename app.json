@@ -9,7 +9,9 @@
     "plugins": [
       "expo-router",
       "expo-notifications",
-      "expo-asset"
+      "expo-asset",
+      "expo-font",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true
@@ -19,8 +21,15 @@
     },
     "android": {
       "package": "com.smartpillbox.app",
+      "permissions": ["SCHEDULE_EXACT_ALARM"],
       "adaptiveIcon": {
         "backgroundColor": "#E9F7F0"
+      }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8b169177-a33f-4399-a3ef-9a805dc7c1c5"
       }
     }
   }

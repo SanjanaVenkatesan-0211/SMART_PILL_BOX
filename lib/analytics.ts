@@ -18,7 +18,8 @@ export function getAdaptiveReminder(records: HistoryRecord[], compartment: Compa
 }
 
 export function shouldMarkMissed(status: DoseStatus, scheduledAt: Date, now = new Date()) {
-  return status === 'Pending' && now.getTime() - scheduledAt.getTime() >= 30 * 60 * 1000;
+  const elapsedMinutes = (now.getTime() - scheduledAt.getTime()) / (60 * 1000);
+  return status === 'Pending' && elapsedMinutes >= 0 && elapsedMinutes >= 5;
 }
 
 function parseTimeToMinutes(value: string) {

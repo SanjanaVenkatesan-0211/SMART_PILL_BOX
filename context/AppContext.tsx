@@ -33,6 +33,11 @@ function localDateKey(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function getMissedGraceMinutes(schedule: Schedule) {
+  const interval = Math.max(1, Number(schedule.reminderIntervalMinutes) || 10);
+  return Math.max(5, Math.min(15, interval));
+}
+
 function isRecordFromDate(record: HistoryRecord, date: Date) {
   return record.date === localDateKey(date) || record.date === date.toLocaleDateString();
 }
@@ -73,13 +78,22 @@ export function AppProvider({ children }: PropsWithChildren) {
       setInventory(readInventory(data.inventory));
       const today = localDateKey();
       const storedStatusDate = String(data.statuses?.statusDate ?? '');
-      const loadedStatuses = storedStatusDate === today
+      const rawStatuses = storedStatusDate === today
         ? { ...defaultStatuses, morning: data.statuses?.morning, afternoon: data.statuses?.afternoon, night: data.statuses?.night } as Statuses
         : defaultStatuses;
+      const todayHistory = ((data.latestHistory ?? []) as HistoryRecord[]).filter((record) => isRecordFromDate(record, new Date()));
+      const loadedStatuses = { ...rawStatuses };
+      for (const compartment of ['morning', 'afternoon', 'night'] as Compartment[]) {
+        if (loadedStatuses[compartment] === 'Taken' || loadedStatuses[compartment] === 'Missed') {
+          const hasMatchingTodayRecord = todayHistory.some((record) => record.compartment === compartment && record.status === loadedStatuses[compartment]);
+          if (!hasMatchingTodayRecord) loadedStatuses[compartment] = 'Pending';
+        }
+      }
       setStatuses(loadedStatuses);
       setStatusDate(today);
-      if (storedStatusDate !== today) {
-        await saveUserData(nextUser.uid, { statuses: { ...defaultStatuses, statusDate: today, updatedAt: new Date().toISOString() } });
+      const statusNeedsRepair = storedStatusDate !== today || (['morning', 'afternoon', 'night'] as Compartment[]).some((compartment) => rawStatuses[compartment] !== loadedStatuses[compartment]);
+      if (statusNeedsRepair) {
+        await saveUserData(nextUser.uid, { statuses: { ...loadedStatuses, statusDate: today, updatedAt: new Date().toISOString() } });
       }
       setHistory((data.latestHistory ?? []) as HistoryRecord[]);
       setAlerts((data.alerts ?? []) as CaregiverAlert[]);
@@ -144,12 +158,11 @@ export function AppProvider({ children }: PropsWithChildren) {
     const missedCompartments = (['morning', 'afternoon', 'night'] as Compartment[]).filter((compartment) => {
       if (statuses[compartment] !== 'Pending') return false;
       const [hour, minute] = String(schedule[`${compartment}Time`]).split(':').map(Number);
+      if (!Number.isFinite(hour) || !Number.isFinite(minute)) return false;
       const scheduled = new Date(now);
       scheduled.setHours(hour, minute, 0, 0);
-      const alertAfter = Math.max(1, Number(user?.caregiverAlertAfterReminders) || 3);
-      const interval = Math.max(1, Number(schedule.reminderIntervalMinutes) || 10);
-      const missedAfterMinutes = Math.max(30, (alertAfter * interval));
-      return now.getTime() - scheduled.getTime() >= missedAfterMinutes * 60 * 1000;
+      const elapsedMinutes = (now.getTime() - scheduled.getTime()) / (60 * 1000);
+      return elapsedMinutes >= 0 && elapsedMinutes >= getMissedGraceMinutes(schedule);
     });
     if (!missedCompartments.length) return;
     const nextStatuses = { ...statuses };
