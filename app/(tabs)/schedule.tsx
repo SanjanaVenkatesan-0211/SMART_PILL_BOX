@@ -24,10 +24,8 @@ export default function ScheduleScreen() {
       Alert.alert('Reminder count is too low', `Increase the reminder count to at least ${user.caregiverAlertAfterReminders}, or lower the caregiver alert threshold in Profile.`);
       return;
     }
-    await Promise.all([
-      updateSchedule({ ...draft, updatedAt: new Date().toISOString() }),
-      updateInventory({ ...stockDraft, updatedAt: new Date().toISOString() }),
-    ]);
+    await updateSchedule({ ...draft, updatedAt: new Date().toISOString() });
+    await updateInventory({ ...stockDraft, updatedAt: new Date().toISOString() });
     Alert.alert('Saved', 'Your schedule and inventory were saved to Firebase.');
   };
   return <ScrollView style={styles.page} contentContainerStyle={styles.content}>

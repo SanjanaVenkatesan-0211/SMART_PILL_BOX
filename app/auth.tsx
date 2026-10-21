@@ -23,6 +23,7 @@ export default function Auth() {
   const [caregiverName, setCaregiverName] = useState('');
   const [caregiverPhone, setCaregiverPhone] = useState('');
   const [caregiverEmail, setCaregiverEmail] = useState('');
+  const [caregiverPushToken, setCaregiverPushToken] = useState('');
   const [caregiverAlertAfterReminders, setCaregiverAlertAfterReminders] = useState('3');
   const [busy, setBusy] = useState(false);
 
@@ -33,7 +34,7 @@ export default function Auth() {
         if (!name || !email || !password) throw new Error('Name, email, and password are required.');
         if (caregiverPhone && !/^\+[1-9]\d{7,14}$/.test(caregiverPhone.trim())) throw new Error('Enter the caregiver phone in international format, such as +15551234567.');
         const escalationThreshold = Math.min(10, Math.max(1, Number(caregiverAlertAfterReminders) || 3));
-        await registerUser({ name, email, password, phone, age: Number(age) || 0, dob, gender, bloodGroup, voiceLanguage, caregiverName, caregiverPhone, caregiverEmail, caregiverAlertAfterReminders: escalationThreshold, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' });
+        await registerUser({ name, email, password, phone, age: Number(age) || 0, dob, gender, bloodGroup, voiceLanguage, caregiverName, caregiverPhone, caregiverEmail, caregiverPushToken: caregiverPushToken.trim(), caregiverAlertAfterReminders: escalationThreshold, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' });
       } else {
         await loginUser(email, password);
       }
@@ -68,6 +69,7 @@ export default function Auth() {
           <Field label="CAREGIVER NAME" value={caregiverName} setValue={setCaregiverName} placeholder="Caregiver name" />
           <Field label="CAREGIVER PHONE (INTERNATIONAL FORMAT)" value={caregiverPhone} setValue={setCaregiverPhone} placeholder="+15551234567" keyboardType="phone-pad" />
           <Field label="CAREGIVER EMAIL" value={caregiverEmail} setValue={setCaregiverEmail} placeholder="name@example.com" keyboardType="email-address" />
+          <Field label="CAREGIVER PUSH TOKEN (OPTIONAL FREE ALERT)" value={caregiverPushToken} setValue={setCaregiverPushToken} placeholder="FCM or Expo token" autoCapitalize="none" />
           <Field label="REMINDERS BEFORE CAREGIVER ALERT" value={caregiverAlertAfterReminders} setValue={setCaregiverAlertAfterReminders} placeholder="3" keyboardType="number-pad" />
         </>}
         <Field label="EMAIL ADDRESS" value={email} setValue={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />

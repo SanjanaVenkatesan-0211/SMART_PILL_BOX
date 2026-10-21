@@ -1,6 +1,6 @@
 import * as Speech from 'expo-speech';
 import Constants from 'expo-constants';
-import { Compartment, Schedule } from './types';
+import { Compartment, DoseStatus, Inventory, Schedule } from './types';
 
 const copy: Record<string, Record<Compartment, { title: string; body: string; speech: string }>> = {
   'en-US': {
@@ -35,7 +35,7 @@ const copy: Record<string, Record<Compartment, { title: string; body: string; sp
   },
 };
 
-export async function scheduleDailyReminders(schedule: Schedule, language = 'en-US') {
+export async function scheduleDailyReminders(schedule: Schedule, language = 'en-US', inventory?: Inventory, statuses?: Partial<Record<Compartment, DoseStatus>>) {
   if (Constants.appOwnership === 'expo') return false;
   const Notifications = await import('expo-notifications');
   await Notifications.setNotificationChannelAsync('medication-reminders', {
@@ -55,13 +55,30 @@ export async function scheduleDailyReminders(schedule: Schedule, language = 'en-
   const reminderCount = Math.min(10, Math.max(1, Math.floor(Number(schedule.reminderCount) || 1)));
   const interval = Math.min(180, Math.max(1, Math.floor(Number(schedule.reminderIntervalMinutes) || 10)));
   for (const compartment of ['morning', 'afternoon', 'night'] as Compartment[]) {
+    if (statuses?.[compartment] && statuses[compartment] !== 'Pending') continue;
     const [baseHour, baseMinute] = String(schedule[`${compartment}Time`]).split(':').map(Number);
     for (let reminderIndex = 0; reminderIndex < reminderCount; reminderIndex += 1) {
-      const totalMinutes = (baseHour * 60) + baseMinute + (reminderIndex * interval);
-      const hour = Math.floor(totalMinutes / 60) % 24;
+      const minutesBeforeDose = (reminderCount - reminderIndex) * interval;
+      const totalMinutes = (((baseHour * 60) + baseMinute - minutesBeforeDose) % (24 * 60) + (24 * 60)) % (24 * 60);
+      const hour = Math.floor(totalMinutes / 60);
       const minute = totalMinutes % 60;
       await Notifications.scheduleNotificationAsync({
-        content: { title: selectedCopy[compartment].title, body: selectedCopy[compartment].body, data: { compartment, language, reminderIndex } },
+        content: { title: selectedCopy[compartment].title, body: selectedCopy[compartment].body, data: { compartment, language, reminderIndex, kind: 'dose' } },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute, channelId: 'medication-reminders' },
+      });
+    }
+  }
+  if (inventory) {
+    for (const compartment of ['morning', 'afternoon', 'night'] as Compartment[]) {
+      const stock = Number(inventory[`${compartment}Stock`]);
+      if (stock > Number(inventory.refillThreshold)) continue;
+      const [hour, minute] = String(schedule[`${compartment}Time`]).split(':').map(Number);
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Refill needed',
+          body: `${schedule[`${compartment}Medicine`]} stock is ${stock}. Please refill above ${inventory.refillThreshold}.`,
+          data: { kind: 'refill', compartment },
+        },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute, channelId: 'medication-reminders' },
       });
     }

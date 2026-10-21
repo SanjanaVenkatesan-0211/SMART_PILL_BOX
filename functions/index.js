@@ -58,8 +58,7 @@ exports.detectMissedDoses = onSchedule('every 5 minutes', async () => {
 
       const nextStatuses = {};
       let changed = false;
-      const interval = Math.max(1, Number(schedule.reminderIntervalMinutes) || 10);
-      const missedAfterMinutes = Math.max(5, Math.min(15, interval));
+      const missedAfterMinutes = 5;
       for (const compartment of ['morning', 'afternoon', 'night']) {
         if (current[compartment] !== 'Pending') continue;
         const [hour, minute] = String(schedule[`${compartment}Time`] || '').split(':').map(Number);
@@ -110,6 +109,30 @@ exports.sendCaregiverMissedDoseSms = onDocumentCreated({
   if (!alert) return;
 
   const alertRef = event.data.ref;
+  const caregiverPushToken = String(alert.caregiverPushToken ?? '').trim();
+
+  if (caregiverPushToken) {
+    try {
+      const result = await admin.messaging().send({
+        token: caregiverPushToken,
+        notification: {
+          title: 'Medicine missed',
+          body: String(alert.message ?? 'A medicine dose was missed.'),
+        },
+        data: {
+          type: 'missed_medicine',
+          alertId: String(event.params?.alertId ?? ''),
+          uid: String(event.params?.uid ?? ''),
+        },
+      });
+      await alertRef.update({ smsStatus: 'push-sent', pushMessageId: result, pushSentAt: admin.firestore.FieldValue.serverTimestamp() });
+      return;
+    } catch (error) {
+      console.error('Caregiver push fallback failed', error);
+      await alertRef.update({ smsStatus: 'push-failed' });
+    }
+  }
+
   const phone = String(alert.caregiverPhone ?? '').trim();
   if (!phone) {
     await alertRef.update({ smsStatus: 'no-phone' });
@@ -134,6 +157,5 @@ exports.sendCaregiverMissedDoseSms = onDocumentCreated({
   } catch (error) {
     console.error('Caregiver SMS failed', error);
     await alertRef.update({ smsStatus: 'failed' });
-    throw error;
   }
 });

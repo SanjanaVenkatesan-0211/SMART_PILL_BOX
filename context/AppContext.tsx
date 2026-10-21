@@ -1,6 +1,6 @@
 import React, { createContext, PropsWithChildren, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, loadUserData, saveCaregiverAlert, saveHistoryRecord, saveUserData, updateUserProfile } from '@/lib/firebase';
+import { auth, loadUserData, saveCaregiverAlert, saveHistoryRecord, saveUserData, sendMissedDoseTextBee, updateUserProfile } from '@/lib/firebase';
 import { defaultInventory, defaultSchedule, defaultStatuses } from '@/lib/seed';
 import { CaregiverAlert, Compartment, Dose, DoseStatus, HistoryRecord, Inventory, Schedule, UserProfile } from '@/lib/types';
 import { scheduleDailyReminders } from '@/lib/notifications';
@@ -33,11 +33,6 @@ function localDateKey(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-function getMissedGraceMinutes(schedule: Schedule) {
-  const interval = Math.max(1, Number(schedule.reminderIntervalMinutes) || 10);
-  return Math.max(5, Math.min(15, interval));
-}
-
 function isRecordFromDate(record: HistoryRecord, date: Date) {
   return record.date === localDateKey(date) || record.date === date.toLocaleDateString();
 }
@@ -48,6 +43,22 @@ function readSchedule(value: Record<string, unknown> | null): Schedule {
 
 function readInventory(value: Record<string, unknown> | null): Inventory {
   return { ...defaultInventory, ...(value ?? {}), updatedAt: String(value?.updatedAt ?? new Date().toISOString()) } as Inventory;
+}
+
+async function syncLoggedInPushToken(uid: string, profile: Partial<UserProfile>) {
+  try {
+    const Notifications = await import('expo-notifications');
+    const permission = await Notifications.getPermissionsAsync();
+    if (!permission.granted) {
+      const requested = await Notifications.requestPermissionsAsync();
+      if (!requested.granted) return;
+    }
+    const token = (await Notifications.getExpoPushTokenAsync()).data?.trim();
+    if (!token || token === profile.caregiverPushToken) return;
+    await updateUserProfile(uid, { ...profile, caregiverPushToken: token });
+  } catch {
+    // Expo Go cannot register push tokens; dev builds can.
+  }
 }
 
 export function AppProvider({ children }: PropsWithChildren) {
@@ -73,9 +84,11 @@ export function AppProvider({ children }: PropsWithChildren) {
       const data = await loadUserData(nextUser.uid);
       const loadedProfile = { uid: nextUser.uid, name: nextUser.displayName ?? 'User', email: nextUser.email ?? '', phone: '', age: 0, dob: '', gender: '', bloodGroup: '', voiceLanguage: 'en-US', caregiverName: '', caregiverPhone: '', caregiverEmail: '', caregiverAlertAfterReminders: 3, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', ...(data.profile ?? {}) } as UserProfile;
       const loadedSchedule = readSchedule(data.schedule);
+      const loadedInventory = readInventory(data.inventory);
       setUser(loadedProfile);
       setSchedule(loadedSchedule);
-      setInventory(readInventory(data.inventory));
+      setInventory(loadedInventory);
+      await syncLoggedInPushToken(nextUser.uid, loadedProfile);
       const today = localDateKey();
       const storedStatusDate = String(data.statuses?.statusDate ?? '');
       const rawStatuses = storedStatusDate === today
@@ -97,7 +110,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       }
       setHistory((data.latestHistory ?? []) as HistoryRecord[]);
       setAlerts((data.alerts ?? []) as CaregiverAlert[]);
-      try { await scheduleDailyReminders(loadedSchedule, loadedProfile.voiceLanguage || 'en-US'); } catch { /* Expo Go does not support Android scheduled notifications. */ }
+      try { await scheduleDailyReminders(loadedSchedule, loadedProfile.voiceLanguage || 'en-US', loadedInventory, loadedStatuses); } catch { /* Expo Go does not support Android scheduled notifications. */ }
     } catch (error) {
       console.error('Unable to load Firebase user data', error);
     } finally {
@@ -110,7 +123,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const saved = { ...next, updatedAt: new Date().toISOString() };
     setSchedule(saved);
     await saveUserData(authUser.uid, { schedule: saved });
-    try { await scheduleDailyReminders(saved, user?.voiceLanguage || 'en-US'); } catch { /* Expo Go does not support Android notifications. */ }
+    try { await scheduleDailyReminders(saved, user?.voiceLanguage || 'en-US', inventory, statuses); } catch { /* Expo Go does not support Android notifications. */ }
   };
 
   const updateInventory = async (next: Inventory) => {
@@ -118,13 +131,14 @@ export function AppProvider({ children }: PropsWithChildren) {
     const saved = { ...next, updatedAt: new Date().toISOString() };
     setInventory(saved);
     await saveUserData(authUser.uid, { inventory: saved });
+    try { await scheduleDailyReminders(schedule, user?.voiceLanguage || 'en-US', saved, statuses); } catch { /* Expo Go does not support Android notifications. */ }
   };
 
   const updateProfile = async (next: UserProfile) => {
     if (!authUser) return;
     await updateUserProfile(authUser.uid, next);
     setUser(next);
-    try { await scheduleDailyReminders(schedule, next.voiceLanguage || 'en-US'); } catch { /* Notifications require a development build on Android. */ }
+    try { await scheduleDailyReminders(schedule, next.voiceLanguage || 'en-US', inventory, statuses); } catch { /* Notifications require a development build on Android. */ }
   };
 
   const resetTodayForTesting = async () => {
@@ -143,6 +157,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     setStatuses(pendingStatuses);
     setStatusDate(localDateKey(today));
     await saveUserData(authUser.uid, { inventory: restoredInventory, statuses: { ...pendingStatuses, statusDate: localDateKey(today), updatedAt: new Date().toISOString() } });
+    try { await scheduleDailyReminders(schedule, user?.voiceLanguage || 'en-US', restoredInventory, pendingStatuses); } catch { /* Expo Go does not support Android notifications. */ }
   };
 
   const checkMissedDoses = async () => {
@@ -162,7 +177,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       const scheduled = new Date(now);
       scheduled.setHours(hour, minute, 0, 0);
       const elapsedMinutes = (now.getTime() - scheduled.getTime()) / (60 * 1000);
-      return elapsedMinutes >= 0 && elapsedMinutes >= getMissedGraceMinutes(schedule);
+      return elapsedMinutes >= 5;
     });
     if (!missedCompartments.length) return;
     const nextStatuses = { ...statuses };
@@ -180,6 +195,12 @@ export function AppProvider({ children }: PropsWithChildren) {
       saveUserData(authUser.uid, { statuses: { ...nextStatuses, statusDate: today, updatedAt: now.toISOString() }, history: nextHistory }),
       ...missedRecords.flatMap((record) => [saveHistoryRecord(authUser.uid, record, record.id), saveCaregiverAlert(authUser.uid, `${record.medicine} was missed at ${record.scheduledTime}.`, user ?? undefined, record.id)]),
     ]);
+    const smsResults = await Promise.all(missedRecords.map((record) => sendMissedDoseTextBee(record.compartment, today)));
+    setAlerts((current) => current.map((alert) => {
+      const resultIndex = missedRecords.findIndex((record) => record.id === alert.id);
+      return resultIndex >= 0 ? { ...alert, smsStatus: smsResults[resultIndex].smsStatus } : alert;
+    }));
+    try { await scheduleDailyReminders(schedule, user?.voiceLanguage || 'en-US', inventory, nextStatuses); } catch { /* Expo Go does not support Android notifications. */ }
   };
 
   useEffect(() => {
@@ -206,6 +227,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     setHistory(nextHistory);
     setStatusDate(today);
     await Promise.all([saveUserData(authUser.uid, { inventory: nextInventory, statuses: { ...nextStatuses, statusDate: today, updatedAt: now.toISOString() }, history: nextHistory }), saveHistoryRecord(authUser.uid, record)]);
+    try { await scheduleDailyReminders(schedule, user?.voiceLanguage || 'en-US', nextInventory, nextStatuses); } catch { /* Expo Go does not support Android notifications. */ }
     return true;
   };
 

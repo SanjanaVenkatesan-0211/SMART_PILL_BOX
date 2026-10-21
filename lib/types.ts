@@ -57,6 +57,7 @@ export type UserProfile = {
   caregiverName: string;
   caregiverPhone: string;
   caregiverEmail: string;
+  caregiverPushToken?: string;
   caregiverAlertAfterReminders: number;
   timezone: string;
 };

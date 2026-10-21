@@ -58,7 +58,72 @@ Expo Go is suitable for this speech test. This app deliberately does not import 
 5. Tap a notification. It should open the app and speak that compartment's reminder in the selected installed language.
 6. Restore your normal schedule and reminder interval after testing.
 
-## Caregiver SMS setup
+## Free TextBee caregiver SMS (no Firebase Functions)
+
+This path sends caregiver SMS through a Cloudflare Worker and TextBee's Android SMS gateway. It does not deploy Firebase Cloud Functions or require Firebase Blaze. TextBee currently lists a free tier of one active Android gateway, 50 messages per day, and 300 per month. The Android gateway phone needs an SMS-capable SIM, internet, power, Send SMS permission, and unrestricted background battery access. Your mobile carrier may still charge for SMS messages.
+
+### 1. Set up the TextBee gateway phone
+
+1. Create and verify an account at [TextBee](https://textbee.dev/).
+2. On a spare/always-on Android phone with an active SMS plan, download and install the APK from TextBee's site.
+3. In the TextBee dashboard, use its QR code to register the phone. Grant **Send SMS** permission; on Android 15+, allow restricted settings if Android blocks SMS permission.
+4. Set TextBee battery use to **Unrestricted** and keep its foreground notification enabled. The phone must remain online to send queued texts.
+5. In the dashboard, create an API key. Keep it private; do not paste it into app `.env`, source files, screenshots, or chat.
+
+### 2. Deploy the Cloudflare Worker
+
+Install Wrangler and authenticate with your Cloudflare account:
+
+```powershell
+npm install -g wrangler
+npx wrangler login
+```
+
+From `D:\SPB`, add the TextBee key and Firebase Web API key as Worker secrets. Wrangler will prompt for each value; enter them directly there.
+
+```powershell
+wrangler secret put TEXTBEE_API_KEY --config textbee-worker/wrangler.toml
+wrangler secret put FIREBASE_API_KEY --config textbee-worker/wrangler.toml
+wrangler deploy --config textbee-worker/wrangler.toml
+```
+
+Use the `workers.dev` URL printed after deployment as the Worker base URL, for example `https://smart-pill-box-textbee-sms.<your-subdomain>.workers.dev`.
+
+### 3. Configure the app
+
+Put the Worker URL in local `D:\SPB\.env`:
+
+```env
+EXPO_PUBLIC_TEXTBEE_WORKER_URL=https://smart-pill-box-textbee-sms.<your-subdomain>.workers.dev
+```
+
+Set the same variable for EAS development builds (the installed APK gets environment variables at build time):
+
+```powershell
+eas env:set development --name EXPO_PUBLIC_TEXTBEE_WORKER_URL --value "https://smart-pill-box-textbee-sms.<your-subdomain>.workers.dev" --visibility plaintext
+```
+
+Rebuild and reinstall the development APK, then start Metro:
+
+```powershell
+eas build --profile development --platform android
+npx expo start --dev-client --clear
+```
+
+### 4. Test one SMS
+
+1. In the app Profile, set a caregiver number in E.164 format, for example `+15551234567`, and save.
+2. In Schedule, set one compartment to a time at least six minutes ago. Keep the app open; its missed-dose check runs every minute and marks a pending dose Missed after five minutes.
+3. Confirm the app creates `users/{uid}/alerts/missed-{compartment}-{YYYY-MM-DD}` in Firestore and calls the Worker.
+4. Check that the alert has `smsStatus: "textbee-queued"` and a `textbeeBatchId`. This means TextBee accepted it into its queue, not that the carrier delivered it.
+5. Confirm final status in TextBee Dashboard → Messaging → History and on the gateway phone. If TextBee is on its trial/free setup, verify the caregiver destination if requested.
+6. Restore the normal schedule after testing. TextBee's free plan currently allows up to 300 messages per month/50 per day; monitor its usage page.
+
+The Worker validates the Firebase sign-in token, verifies the dose is marked Missed for today, and reads the caregiver number from that user's Firestore profile. The TextBee API key never goes into the mobile app.
+
+**Important background limitation:** this no-Blaze version sends the SMS when the patient's app detects the missed dose while running, or when it is reopened and performs the check. Local reminders can still notify while the app is closed, but a Cloudflare Worker cannot independently inspect Firestore under the current setup. Fully automatic missed-dose SMS while the patient app is closed would require adding a scheduled backend that can securely read all users' Firestore data.
+
+## Twilio caregiver SMS (optional paid fallback)
 
 Caregiver phone numbers must use E.164 format, for example `+15551234567`. A five-minute scheduled Cloud Function checks due doses even when the app is closed, updates daily status/history, and creates caregiver alerts after the configured number of reminder intervals. A Firestore-triggered function sends SMS through Twilio. The Insights screen displays SMS delivery status.
 

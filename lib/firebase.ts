@@ -83,8 +83,8 @@ export async function saveHistoryRecord(uid: string, record: unknown, documentId
   await addDoc(collection(db, 'users', uid, 'history'), payload);
 }
 
-export async function saveCaregiverAlert(uid: string, message: string, caregiver?: Pick<UserProfile, 'name' | 'caregiverName' | 'caregiverPhone' | 'caregiverEmail'>, documentId?: string) {
-  const payload = { message, patientName: caregiver?.name ?? '', caregiverName: caregiver?.caregiverName ?? '', caregiverPhone: caregiver?.caregiverPhone ?? '', caregiverEmail: caregiver?.caregiverEmail ?? '', resolved: false, smsStatus: caregiver?.caregiverPhone ? 'queued' : 'no-phone', createdAt: serverTimestamp() };
+export async function saveCaregiverAlert(uid: string, message: string, caregiver?: Pick<UserProfile, 'name' | 'caregiverName' | 'caregiverPhone' | 'caregiverEmail' | 'caregiverPushToken'>, documentId?: string) {
+  const payload = { message, patientName: caregiver?.name ?? '', caregiverName: caregiver?.caregiverName ?? '', caregiverPhone: caregiver?.caregiverPhone ?? '', caregiverEmail: caregiver?.caregiverEmail ?? '', caregiverPushToken: caregiver?.caregiverPushToken ?? '', resolved: false, smsStatus: caregiver?.caregiverPhone ? 'queued' : 'no-phone', createdAt: serverTimestamp() };
   if (documentId) {
     const alertRef = doc(db, 'users', uid, 'alerts', documentId);
     await runTransaction(db, async (transaction) => {
@@ -96,14 +96,36 @@ export async function saveCaregiverAlert(uid: string, message: string, caregiver
   await addDoc(collection(db, 'users', uid, 'alerts'), payload);
 }
 
+export async function sendMissedDoseTextBee(compartment: string, date: string) {
+  const workerUrl = process.env.EXPO_PUBLIC_TEXTBEE_WORKER_URL?.trim().replace(/\/$/, '');
+  const currentUser = auth.currentUser;
+  if (!workerUrl) return { smsStatus: 'textbee-not-configured' };
+  if (!currentUser) return { smsStatus: 'textbee-no-session' };
+
+  try {
+    const idToken = await currentUser.getIdToken();
+    const response = await fetch(`${workerUrl}/send-missed-dose`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ compartment, date }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return { smsStatus: result.status ?? 'textbee-failed', error: result.error };
+    return { smsStatus: result.status === 'already-queued' ? 'textbee-queued' : result.status === 'queued' ? 'textbee-queued' : 'textbee-failed', batchId: result.smsBatchId };
+  } catch (error) {
+    console.error('TextBee Worker request failed', error);
+    return { smsStatus: 'textbee-failed' };
+  }
+}
+
 export async function updateUserProfile(uid: string, profile: Partial<UserProfile>) {
   await setDoc(doc(db, 'users', uid), { ...profile, uid, updatedAt: serverTimestamp() }, { merge: true });
 }
 
-export async function registerUser(input: { name: string; email: string; password: string; phone: string; age: number; dob: string; gender: string; bloodGroup: string; voiceLanguage: string; caregiverName: string; caregiverPhone: string; caregiverEmail: string; caregiverAlertAfterReminders: number; timezone: string; }) {
+export async function registerUser(input: { name: string; email: string; password: string; phone: string; age: number; dob: string; gender: string; bloodGroup: string; voiceLanguage: string; caregiverName: string; caregiverPhone: string; caregiverEmail: string; caregiverPushToken?: string; caregiverAlertAfterReminders: number; timezone: string; }) {
   const credential = await createUserWithEmailAndPassword(auth, input.email, input.password);
   await updateProfile(credential.user, { displayName: input.name });
-  const profile = { uid: credential.user.uid, name: input.name, email: input.email, phone: input.phone, age: input.age, dob: input.dob, gender: input.gender, bloodGroup: input.bloodGroup, voiceLanguage: input.voiceLanguage, caregiverName: input.caregiverName, caregiverPhone: input.caregiverPhone, caregiverEmail: input.caregiverEmail, caregiverAlertAfterReminders: input.caregiverAlertAfterReminders, timezone: input.timezone, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+  const profile = { uid: credential.user.uid, name: input.name, email: input.email, phone: input.phone, age: input.age, dob: input.dob, gender: input.gender, bloodGroup: input.bloodGroup, voiceLanguage: input.voiceLanguage, caregiverName: input.caregiverName, caregiverPhone: input.caregiverPhone, caregiverEmail: input.caregiverEmail, caregiverPushToken: input.caregiverPushToken ?? '', caregiverAlertAfterReminders: input.caregiverAlertAfterReminders, timezone: input.timezone, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
   await Promise.all([
     setDoc(doc(db, 'users', credential.user.uid), profile),
     setDoc(doc(db, 'schedules', credential.user.uid), { morningMedicine: 'Morning medicine', afternoonMedicine: 'Afternoon medicine', nightMedicine: 'Night medicine', morningTime: '08:00', afternoonTime: '13:00', nightTime: '20:00', morningDose: 1, afternoonDose: 1, nightDose: 1, reminderCount: Math.max(3, input.caregiverAlertAfterReminders), reminderIntervalMinutes: 10, updatedAt: serverTimestamp() }),

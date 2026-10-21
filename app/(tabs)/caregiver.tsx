@@ -44,6 +44,10 @@ function Metric({ icon, value, label, color }: { icon: keyof typeof Ionicons.gly
 function smsLabel(status: string) {
   if (status === 'sent') return 'Caregiver SMS sent';
   if (status === 'queued') return 'Caregiver SMS queued';
+  if (status === 'textbee-queued') return 'TextBee accepted the SMS; delivery is pending';
+  if (status === 'textbee-not-configured') return 'TextBee Worker URL is not configured';
+  if (status === 'textbee-no-session') return 'Sign in again to send the caregiver SMS';
+  if (status === 'textbee-failed') return 'TextBee could not queue the SMS';
   if (status === 'invalid-phone') return 'Caregiver phone must use international format';
   if (status === 'failed') return 'Caregiver SMS failed';
   if (status === 'no-phone') return 'No caregiver phone configured';
